@@ -4,6 +4,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:path/path.dart' as path;
 import 'package:snap_post/src/app_settings.dart';
 import 'package:snap_post/src/hashtags.dart';
+import 'package:snap_post/src/reply_target.dart';
 import 'package:snap_post/src/images.dart';
 import 'package:snap_post/src/intent_url.dart';
 import 'package:snap_post/src/settings_store.dart';
@@ -20,7 +21,7 @@ void main() {
     expect(restored.saveFolder, isEmpty);
     expect(restored.launchAtStartup, isFalse);
     expect(restored.replyTweet, isEmpty);
-    expect(restored.continueThread, isFalse);
+    expect(restored.toJson().containsKey('continueThread'), isFalse);
     expect(
       buildIntentUrl(
         hashtags: restored.hashtags,
@@ -39,7 +40,6 @@ void main() {
       saveFolder: r'C:\Users\me\Pictures\SnapPost',
       launchAtStartup: true,
       replyTweet: 'https://x.com/name/status/99?s=20',
-      continueThread: true,
     );
 
     final restored = AppSettings.fromJson(original.toJson());
@@ -50,7 +50,7 @@ void main() {
     expect(restored.saveFolder, original.saveFolder);
     expect(restored.launchAtStartup, isTrue);
     expect(restored.replyTweet, original.replyTweet);
-    expect(restored.continueThread, isTrue);
+    expect(restored.toJson().containsKey('continueThread'), isFalse);
   });
 
   test(
@@ -60,7 +60,14 @@ void main() {
         'targetProcessExe': 'game.exe',
       });
       expect(missing.hashtags, defaultHashtags);
-      expect(missing.continueThread, isFalse);
+
+      final legacy = AppSettings.fromJson(<String, dynamic>{
+        'replyTweet': 'https://x.com/name/status/9',
+        'continueThread': false,
+      });
+      expect(legacy.replyTweet, 'https://x.com/name/status/9');
+      expect(activeReplyStatusId(legacy.replyTweet), '9');
+      expect(legacy.toJson().containsKey('continueThread'), isFalse);
 
       final cleared = AppSettings.fromJson(<String, dynamic>{
         'hashtags': <String>[],

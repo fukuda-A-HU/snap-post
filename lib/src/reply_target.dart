@@ -34,14 +34,18 @@ String displayReplyTarget(String stored) {
   return 'https://x.com/i/status/$id';
 }
 
-/// Id used for `in_reply_to` when the thread toggle is on and the field parses.
-String? activeReplyStatusId({
-  required bool continueThread,
-  required String replyTweet,
-}) {
-  if (!continueThread) return null;
-  return parseStatusId(replyTweet);
+/// Live validation label for the reply-target field.
+String replyFieldStatus(String input) {
+  final trimmed = input.trim();
+  if (trimmed.isEmpty) return '未設定';
+  final id = parseStatusId(trimmed);
+  if (id == null) return '読めません';
+  return 'status id: $id';
 }
+
+/// Status id for `in_reply_to` when [replyTweet] parses. Empty or invalid
+/// input posts without a reply target.
+String? activeReplyStatusId(String replyTweet) => parseStatusId(replyTweet);
 
 String _stripTrailingPunctuation(String value) {
   return value.replaceFirst(RegExp(r'[)\].,>]+$'), '');

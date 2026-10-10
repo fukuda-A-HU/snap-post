@@ -10,7 +10,6 @@ class AppSettings {
     required this.saveFolder,
     required this.launchAtStartup,
     this.replyTweet = '',
-    this.continueThread = false,
   });
 
   factory AppSettings.defaults() {
@@ -22,7 +21,6 @@ class AppSettings {
       saveFolder: '',
       launchAtStartup: false,
       replyTweet: '',
-      continueThread: false,
     );
   }
 
@@ -42,11 +40,9 @@ class AppSettings {
 
   final bool launchAtStartup;
 
-  /// Tweet URL or numeric status id. Used when [continueThread] is on.
+  /// Tweet URL or numeric status id. A valid value is always sent as
+  /// `in_reply_to`. Empty or invalid values are ignored.
   final String replyTweet;
-
-  /// When true, the intent URL includes `in_reply_to` for [replyTweet].
-  final bool continueThread;
 
   WindowTarget get target => WindowTarget(
     processExe: targetProcessExe,
@@ -63,7 +59,6 @@ class AppSettings {
     String? saveFolder,
     bool? launchAtStartup,
     String? replyTweet,
-    bool? continueThread,
   }) {
     return AppSettings(
       targetProcessExe: targetProcessExe ?? this.targetProcessExe,
@@ -73,7 +68,6 @@ class AppSettings {
       saveFolder: saveFolder ?? this.saveFolder,
       launchAtStartup: launchAtStartup ?? this.launchAtStartup,
       replyTweet: replyTweet ?? this.replyTweet,
-      continueThread: continueThread ?? this.continueThread,
     );
   }
 
@@ -85,7 +79,6 @@ class AppSettings {
     'saveFolder': saveFolder,
     'launchAtStartup': launchAtStartup,
     'replyTweet': replyTweet,
-    'continueThread': continueThread,
   };
 
   factory AppSettings.fromJson(Map<String, dynamic> json) {
@@ -99,7 +92,6 @@ class AppSettings {
       saveFolder: _string(json['saveFolder']),
       launchAtStartup: json['launchAtStartup'] == true,
       replyTweet: _string(json['replyTweet']),
-      continueThread: json['continueThread'] == true,
     );
   }
 }

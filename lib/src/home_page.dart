@@ -1,6 +1,7 @@
 import 'dart:io';
 
 import 'package:flutter/material.dart';
+import 'package:url_launcher/url_launcher_string.dart';
 
 import 'app_settings.dart';
 import 'reply_target.dart';
@@ -16,10 +17,10 @@ class HomePage extends StatelessWidget {
     required this.onOpenSettings,
     required this.onToggle,
     required this.onDelete,
-    required this.onClear,
     required this.onPost,
-    required this.onContinueThread,
-    required this.onUpdateReply,
+    required this.onReplyDraft,
+    required this.onReplyCommit,
+    required this.onReadClipboard,
     super.key,
   });
 
@@ -31,10 +32,10 @@ class HomePage extends StatelessWidget {
   final VoidCallback onOpenSettings;
   final void Function(int index, bool selected) onToggle;
   final ValueChanged<int> onDelete;
-  final VoidCallback onClear;
   final VoidCallback onPost;
-  final ValueChanged<bool> onContinueThread;
-  final VoidCallback onUpdateReply;
+  final ValueChanged<String> onReplyDraft;
+  final ValueChanged<String> onReplyCommit;
+  final Future<String?> Function() onReadClipboard;
 
   @override
   Widget build(BuildContext context) {
@@ -81,13 +82,6 @@ class HomePage extends StatelessWidget {
               ),
             ],
             const SizedBox(height: 12),
-            _ReplyBar(
-              settings: settings,
-              busy: busy,
-              onContinueThread: onContinueThread,
-              onUpdateReply: onUpdateReply,
-            ),
-            const SizedBox(height: 8),
             Text('選択中 $selected/4', style: theme.textTheme.titleMedium),
             if (shots.selectionFull)
               Text(
@@ -121,14 +115,17 @@ class HomePage extends StatelessWidget {
                     ),
             ),
             const SizedBox(height: 12),
+            ThreadSection(
+              savedReply: settings.replyTweet,
+              busy: busy,
+              onDraft: onReplyDraft,
+              onCommit: onReplyCommit,
+              onReadClipboard: onReadClipboard,
+            ),
+            const SizedBox(height: 12),
             FilledButton(
               onPressed: busy || selected == 0 ? null : onPost,
               child: const Text('投稿画面を開く'),
-            ),
-            const SizedBox(height: 8),
-            OutlinedButton(
-              onPressed: busy || shots.isEmpty ? null : onClear,
-              child: const Text('全部消す'),
             ),
           ],
         ),
@@ -202,50 +199,132 @@ class _ShotCard extends StatelessWidget {
   }
 }
 
-class _ReplyBar extends StatelessWidget {
-  const _ReplyBar({
-    required this.settings,
+class ThreadSection extends StatefulWidget {
+  const ThreadSection({
+    required this.savedReply,
     required this.busy,
-    required this.onContinueThread,
-    required this.onUpdateReply,
+    required this.onDraft,
+    required this.onCommit,
+    required this.onReadClipboard,
+    super.key,
   });
 
-  final AppSettings settings;
+  final String savedReply;
   final bool busy;
-  final ValueChanged<bool> onContinueThread;
-  final VoidCallback onUpdateReply;
+  final ValueChanged<String> onDraft;
+  final ValueChanged<String> onCommit;
+  final Future<String?> Function() onReadClipboard;
+
+  @override
+  State<ThreadSection> createState() => _ThreadSectionState();
+}
+
+class _ThreadSectionState extends State<ThreadSection> {
+  late final TextEditingController _controller;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = TextEditingController(text: widget.savedReply);
+    widget.onDraft(_controller.text);
+  }
+
+  @override
+  void didUpdateWidget(ThreadSection oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (widget.savedReply != oldWidget.savedReply &&
+        widget.savedReply != _controller.text.trim()) {
+      _controller.text = widget.savedReply;
+      widget.onDraft(_controller.text);
+    }
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  void _publish(String value) {
+    widget.onDraft(value);
+    final trimmed = value.trim();
+    if (trimmed.isEmpty || parseStatusId(trimmed) != null) {
+      widget.onCommit(trimmed);
+    }
+  }
+
+  Future<void> _paste() async {
+    final text = await widget.onReadClipboard();
+    if (!mounted) return;
+    final value = text?.trim() ?? '';
+    _controller.text = value;
+    setState(() {});
+    _publish(value);
+  }
+
+  Future<void> _open() async {
+    final shown = displayReplyTarget(_controller.text);
+    final uri = Uri.tryParse(shown);
+    if (uri == null || !uri.hasScheme) return;
+    await launchUrlString(uri.toString(), mode: LaunchMode.externalApplication);
+  }
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final label = displayReplyTarget(settings.replyTweet);
+    final status = replyFieldStatus(_controller.text);
+    final canOpen = parseStatusId(_controller.text) != null;
     return DecoratedBox(
       decoration: BoxDecoration(
         border: Border.all(color: theme.colorScheme.outlineVariant),
         borderRadius: BorderRadius.circular(8),
       ),
       child: Padding(
-        padding: const EdgeInsets.fromLTRB(12, 8, 12, 8),
+        padding: const EdgeInsets.all(12),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text('つなげる先', style: theme.textTheme.titleSmall),
-            const SizedBox(height: 4),
-            Text(
-              label,
-              maxLines: 2,
-              overflow: TextOverflow.ellipsis,
-              style: theme.textTheme.bodyMedium,
+            Text('ツリーにつなげる', style: theme.textTheme.titleMedium),
+            const SizedBox(height: 8),
+            TextField(
+              controller: _controller,
+              enabled: !widget.busy,
+              decoration: const InputDecoration(
+                labelText: 'ツイート URL または id',
+                border: OutlineInputBorder(),
+                isDense: true,
+              ),
+              onChanged: (value) {
+                setState(() {});
+                _publish(value);
+              },
             ),
-            SwitchListTile(
-              contentPadding: EdgeInsets.zero,
-              title: const Text('ツリーにつなげる'),
-              value: settings.continueThread,
-              onChanged: busy ? null : onContinueThread,
-            ),
-            OutlinedButton(
-              onPressed: busy ? null : onUpdateReply,
-              child: const Text('クリップボードから更新'),
+            const SizedBox(height: 6),
+            Text(status, style: theme.textTheme.bodySmall),
+            const SizedBox(height: 8),
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: [
+                OutlinedButton(
+                  onPressed: widget.busy ? null : _paste,
+                  child: const Text('クリップボードから貼り付け'),
+                ),
+                OutlinedButton(
+                  onPressed: widget.busy
+                      ? null
+                      : () {
+                          _controller.clear();
+                          setState(() {});
+                          _publish('');
+                        },
+                  child: const Text('クリア'),
+                ),
+                TextButton(
+                  onPressed: widget.busy || !canOpen ? null : _open,
+                  child: const Text('開く'),
+                ),
+              ],
             ),
           ],
         ),

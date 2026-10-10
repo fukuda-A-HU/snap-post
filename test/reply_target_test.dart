@@ -37,24 +37,12 @@ void main() {
     expect(parseStatusId('not a url'), isNull);
   });
 
-  test('thread id is used only while the toggle is on', () {
-    expect(
-      activeReplyStatusId(
-        continueThread: true,
-        replyTweet: 'https://x.com/name/status/5?s=1',
-      ),
-      '5',
-    );
-    expect(
-      activeReplyStatusId(
-        continueThread: false,
-        replyTweet: 'https://x.com/name/status/5',
-      ),
-      isNull,
-    );
-    expect(
-      activeReplyStatusId(continueThread: true, replyTweet: 'nope'),
-      isNull,
-    );
+  test('a valid target is used and an empty or invalid one is not', () {
+    expect(activeReplyStatusId('https://x.com/name/status/5?s=1'), '5');
+    expect(activeReplyStatusId(''), isNull);
+    expect(activeReplyStatusId('nope'), isNull);
+    expect(replyFieldStatus(''), '未設定');
+    expect(replyFieldStatus('nope'), '読めません');
+    expect(replyFieldStatus('https://x.com/name/status/5'), 'status id: 5');
   });
 }

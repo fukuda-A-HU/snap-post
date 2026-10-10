@@ -12,7 +12,6 @@ import 'src/desktop.dart';
 import 'src/desktop_loader.dart';
 import 'src/home_page.dart';
 import 'src/images.dart';
-import 'src/reply_target.dart';
 import 'src/settings_page.dart';
 import 'src/settings_store.dart';
 import 'src/shot_list.dart';
@@ -100,6 +99,7 @@ class _SnapAppState extends State<SnapApp> with TrayListener {
   var _busy = false;
   var _showSettings = false;
   String? _captureError;
+  String _replyDraft = '';
 
   @override
   void initState() {
@@ -120,6 +120,7 @@ class _SnapAppState extends State<SnapApp> with TrayListener {
     if (!mounted) return;
     setState(() {
       _settings = settings;
+      _replyDraft = settings.replyTweet;
       _ready = true;
     });
     await _setupTray();
@@ -221,7 +222,7 @@ class _SnapAppState extends State<SnapApp> with TrayListener {
     setState(() => _busy = true);
     try {
       final posted = await _service.openPost(
-        settings: _settings,
+        settings: _settings.copyWith(replyTweet: _replyDraft),
         sourcePaths: _shots.selectedPaths,
         saveRoot: _saveRoot(),
         notify: _notify,
@@ -259,46 +260,27 @@ class _SnapAppState extends State<SnapApp> with TrayListener {
     if (mounted) setState(() {});
   }
 
-  Future<void> _clearAll() async {
-    final paths = _shots.paths.toList();
-    _shots.clear();
-    for (final filePath in paths) {
-      try {
-        await File(filePath).delete();
-      } catch (_) {}
-    }
-    if (mounted) setState(() {});
+  void _setReplyDraft(String value) {
+    _replyDraft = value;
   }
 
-  Future<void> _updateReplyFromClipboard() async {
-    String? text;
-    try {
-      text = await widget.desktop.readClipboardText();
-    } catch (_) {
-      text = null;
-    }
-    final raw = text?.trim() ?? '';
-    if (parseStatusId(raw) == null) {
-      await _notify('クリップボードからツイート URL を読めませんでした');
-      return;
-    }
-    final updated = _settings.copyWith(replyTweet: raw);
+  Future<void> _commitReply(String value) async {
+    if (_settings.replyTweet == value) return;
+    final updated = _settings.copyWith(replyTweet: value);
+    if (mounted) setState(() => _settings = updated);
     try {
       await widget.store.save(updated);
     } catch (_) {
       await _notify('つなげる先の保存に失敗しました');
-      return;
     }
-    if (!mounted) return;
-    setState(() => _settings = updated);
   }
 
-  Future<void> _setContinueThread(bool enabled) async {
-    final updated = _settings.copyWith(continueThread: enabled);
-    setState(() => _settings = updated);
+  Future<String?> _readClipboard() async {
     try {
-      await widget.store.save(updated);
-    } catch (_) {}
+      return await widget.desktop.readClipboardText();
+    } catch (_) {
+      return null;
+    }
   }
 
   String _saveRoot() {
@@ -356,11 +338,10 @@ class _SnapAppState extends State<SnapApp> with TrayListener {
                     setState(() => _shots.setSelected(index, selected));
                   },
                   onDelete: (index) => unawaited(_deleteAt(index)),
-                  onClear: () => unawaited(_clearAll()),
                   onPost: () => unawaited(_post()),
-                  onContinueThread: (value) =>
-                      unawaited(_setContinueThread(value)),
-                  onUpdateReply: () => unawaited(_updateReplyFromClipboard()),
+                  onReplyDraft: _setReplyDraft,
+                  onReplyCommit: (value) => unawaited(_commitReply(value)),
+                  onReadClipboard: _readClipboard,
                 ),
                 SettingsPage(
                   settings: _settings,

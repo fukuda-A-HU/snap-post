@@ -115,10 +115,7 @@ class SnapService {
     final url = buildIntentUrl(
       hashtags: settings.hashtags,
       fixedText: settings.fixedText,
-      inReplyTo: activeReplyStatusId(
-        continueThread: settings.continueThread,
-        replyTweet: settings.replyTweet,
-      ),
+      inReplyTo: activeReplyStatusId(settings.replyTweet),
     );
     return launchUrlString(url, mode: LaunchMode.externalApplication);
   }

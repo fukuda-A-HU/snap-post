@@ -68,7 +68,6 @@ class _SettingsPageState extends State<SettingsPage> {
       saveFolder: _folderController.text.trim(),
       launchAtStartup: _launchAtStartup,
       replyTweet: widget.settings.replyTweet,
-      continueThread: widget.settings.continueThread,
     );
   }
 

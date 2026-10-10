@@ -63,38 +63,25 @@ void main() {
     expect(uri.queryParameters['text'], '#VR活動報告大会2026 #NUMA');
   });
 
-  test('thread toggle and a parsed id build in_reply_to', () {
+  test('a valid reply target always adds in_reply_to', () {
     final linked = AppSettings.defaults().copyWith(
-      continueThread: true,
       replyTweet: 'https://twitter.com/name/status/42?s=20',
     );
     expect(
       buildIntentUrl(
         hashtags: linked.hashtags,
         fixedText: linked.fixedText,
-        inReplyTo: activeReplyStatusId(
-          continueThread: linked.continueThread,
-          replyTweet: linked.replyTweet,
-        ),
+        inReplyTo: activeReplyStatusId(linked.replyTweet),
       ),
       'https://x.com/intent/post?in_reply_to=42&text=%23VR%E6%B4%BB%E5%8B%95%E5%A0%B1%E5%91%8A%E5%A4%A7%E4%BC%9A2026%20%23NUMA',
     );
 
-    final paused = linked.copyWith(continueThread: false);
-    expect(
-      activeReplyStatusId(
-        continueThread: paused.continueThread,
-        replyTweet: paused.replyTweet,
-      ),
-      isNull,
-    );
+    final plain = linked.copyWith(replyTweet: 'not a tweet');
+    expect(activeReplyStatusId(plain.replyTweet), isNull);
     expect(
       buildIntentUrl(
-        hashtags: paused.hashtags,
-        inReplyTo: activeReplyStatusId(
-          continueThread: paused.continueThread,
-          replyTweet: paused.replyTweet,
-        ),
+        hashtags: plain.hashtags,
+        inReplyTo: activeReplyStatusId(plain.replyTweet),
       ),
       'https://x.com/intent/post?text=%23VR%E6%B4%BB%E5%8B%95%E5%A0%B1%E5%91%8A%E5%A4%A7%E4%BC%9A2026%20%23NUMA',
     );
