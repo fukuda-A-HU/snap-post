@@ -1,6 +1,8 @@
 import 'dart:async';
 import 'dart:io';
 
+import 'package:path/path.dart' as path;
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:hotkey_manager/hotkey_manager.dart';
@@ -12,6 +14,9 @@ import 'package:window_manager/window_manager.dart';
 import 'src/app_settings.dart';
 import 'src/desktop.dart';
 import 'src/desktop_loader.dart';
+import 'src/images.dart';
+import 'src/pending_batch.dart';
+import 'src/pending_page.dart';
 import 'src/reply_target.dart';
 import 'src/settings_page.dart';
 import 'src/settings_store.dart';
@@ -92,18 +97,21 @@ class SnapApp extends StatefulWidget {
 
 class _SnapAppState extends State<SnapApp> with TrayListener {
   late final SnapService _service = SnapService(widget.desktop);
+  final PendingBatch _batch = PendingBatch();
+  final List<HotKey> _registeredHotkeys = <HotKey>[];
   AppSettings _settings = AppSettings.defaults();
   List<WindowSummary> _windows = const <WindowSummary>[];
-  HotKey? _registeredHotkey;
   var _ready = false;
   var _busy = false;
   var _hotkeyPaused = false;
   var _replyEpoch = 0;
+  var _showPendingPage = false;
 
   @override
   void initState() {
     super.initState();
     trayManager.addListener(this);
+    widget.desktop.listenForActivation(_showSettingsFromAnotherLaunch);
     unawaited(_start());
   }
 
@@ -121,7 +129,7 @@ class _SnapAppState extends State<SnapApp> with TrayListener {
       _ready = true;
     });
     await _setupTray();
-    await _applyHotkey(settings.hotkey);
+    await _applyHotkeys();
     await _applyStartup(settings.launchAtStartup);
     await _refreshWindows();
   }
@@ -139,6 +147,16 @@ class _SnapAppState extends State<SnapApp> with TrayListener {
               key: 'capture',
               label: '今すぐ撮る',
               onClick: (_) => unawaited(_captureSaved()),
+            ),
+            MenuItem(
+              key: 'batch',
+              label: 'まとめて投稿',
+              onClick: (_) => unawaited(_finishBatch()),
+            ),
+            MenuItem(
+              key: 'pending',
+              label: '投稿待ち',
+              onClick: (_) => unawaited(_showPending()),
             ),
             MenuItem(
               key: 'reply',
@@ -159,11 +177,11 @@ class _SnapAppState extends State<SnapApp> with TrayListener {
 
   @override
   void onTrayIconMouseUp() {
-    unawaited(showSettingsWindow());
+    unawaited(_showSettings());
   }
 
   void _open() {
-    unawaited(showSettingsWindow());
+    unawaited(_showSettings());
   }
 
   Future<void> _refreshWindows() async {
@@ -181,11 +199,27 @@ class _SnapAppState extends State<SnapApp> with TrayListener {
     await widget.store.save(settings);
     if (!mounted) return;
     setState(() => _settings = settings);
-    await _applyHotkey(settings.hotkey);
+    await _applyHotkeys();
     await _applyStartup(settings.launchAtStartup);
   }
 
   Future<void> _captureSaved() => _capture(_settings);
+
+  void _showSettingsFromAnotherLaunch() {
+    unawaited(_showSettings());
+  }
+
+  Future<void> _showSettings() async {
+    if (mounted) setState(() => _showPendingPage = false);
+    await showSettingsWindow();
+    await windowManager.setSize(const Size(900, 760));
+  }
+
+  Future<void> _showPending() async {
+    if (mounted) setState(() => _showPendingPage = true);
+    await showSettingsWindow();
+    await windowManager.setSize(const Size(420, 640));
+  }
 
   /// Returns the status id stored from the clipboard, or null when it is not
   /// a tweet URL or numeric id.
@@ -221,10 +255,112 @@ class _SnapAppState extends State<SnapApp> with TrayListener {
     if (_busy) return;
     setState(() => _busy = true);
     try {
-      await _service.captureAndPost(settings: settings, notify: _notify);
+      if (settings.batchMode) {
+        final ready = await _addToBatch(settings);
+        if (ready) await _publishBatch();
+      } else {
+        await _service.captureAndPost(settings: settings, notify: _notify);
+      }
     } finally {
       if (mounted) setState(() => _busy = false);
     }
+  }
+
+  Future<bool> _addToBatch(AppSettings settings) async {
+    final now = DateTime.now();
+    final createdFolder = _batch.folder == null;
+    if (createdFolder) {
+      final root = settings.saveFolder.trim().isEmpty
+          ? picturesDirectory(Platform.environment)
+          : settings.saveFolder.trim();
+      _batch.folder = path.join(root, batchFolderName(now));
+    }
+    final saved = await _service.captureToDirectory(
+      settings: settings,
+      directory: _batch.folder!,
+      notify: _notify,
+      now: now,
+    );
+    if (saved == null) {
+      if (_batch.isEmpty) _batch.folder = null;
+      return false;
+    }
+    final result = _batch.add(PendingImage(saved));
+    if (mounted) setState(() {});
+    await _notify(batchProgressNotification(_batch.length));
+    return result == BatchAdd.readyToPost;
+  }
+
+  Future<void> _finishBatch() async {
+    if (_busy) return;
+    if (_batch.isEmpty) {
+      await _notify('投稿待ちの画像がありません');
+      await _showPending();
+      return;
+    }
+    setState(() => _busy = true);
+    try {
+      await _publishBatch();
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  Future<void> _publishBatch() async {
+    final paths = _batch.paths;
+    final folder = _batch.folder;
+    if (paths.isEmpty || folder == null) {
+      await _notify('投稿待ちの画像がありません');
+      await _showPending();
+      return;
+    }
+    await _showPending();
+    final posted = await _service.publishBatch(
+      settings: _settings,
+      paths: paths,
+      folder: folder,
+      notify: _notify,
+    );
+    if (!posted) return;
+    _batch.clear();
+    if (mounted) setState(() {});
+  }
+
+  Future<void> _removePending(int index) async {
+    final removed = _batch.removeAt(index);
+    try {
+      await File(removed.path).delete();
+    } catch (_) {}
+    final folder = path.dirname(removed.path);
+    if (_batch.isEmpty) {
+      try {
+        final directory = Directory(folder);
+        if (await directory.exists() && directory.listSync().isEmpty) {
+          await directory.delete();
+        }
+      } catch (_) {}
+    }
+    if (mounted) setState(() {});
+  }
+
+  Future<void> _clearPending() async {
+    final paths = _batch.paths.toList();
+    final folder = _batch.folder;
+    _batch.clear();
+    for (final filePath in paths) {
+      try {
+        await File(filePath).delete();
+      } catch (_) {}
+    }
+    if (folder != null) {
+      try {
+        final directory = Directory(folder);
+        if (await directory.exists() && directory.listSync().isEmpty) {
+          await directory.delete();
+        }
+      } catch (_) {}
+    }
+    if (mounted) setState(() {});
   }
 
   Future<void> _notify(String message) async {
@@ -232,37 +368,44 @@ class _SnapAppState extends State<SnapApp> with TrayListener {
     await notification.show();
   }
 
-  Future<void> _applyHotkey(HotkeyConfig config) async {
+  Future<void> _applyHotkeys() async {
     if (!Platform.isWindows || _hotkeyPaused) return;
+    await _clearHotkeys();
+    await _registerHotkey(_settings.hotkey, _captureSaved);
+    await _registerHotkey(_settings.finishHotkey, _finishBatch);
+  }
+
+  Future<void> _registerHotkey(
+    HotkeyConfig config,
+    Future<void> Function() onPressed,
+  ) async {
     try {
-      final previous = _registeredHotkey;
-      if (previous != null) {
-        await hotKeyManager.unregister(previous);
-        _registeredHotkey = null;
-      }
       final hotkey = _hotKeyFromConfig(config);
       await hotKeyManager.register(
         hotkey,
-        keyDownHandler: (_) => unawaited(_captureSaved()),
+        keyDownHandler: (_) => unawaited(onPressed()),
       );
-      _registeredHotkey = hotkey;
+      _registeredHotkeys.add(hotkey);
     } catch (_) {}
+  }
+
+  Future<void> _clearHotkeys() async {
+    for (final hotkey in _registeredHotkeys) {
+      try {
+        await hotKeyManager.unregister(hotkey);
+      } catch (_) {}
+    }
+    _registeredHotkeys.clear();
   }
 
   Future<void> _setRecording(bool recording) async {
     _hotkeyPaused = recording;
     if (!Platform.isWindows) return;
     if (recording) {
-      final previous = _registeredHotkey;
-      if (previous != null) {
-        try {
-          await hotKeyManager.unregister(previous);
-        } catch (_) {}
-        _registeredHotkey = null;
-      }
+      await _clearHotkeys();
       return;
     }
-    await _applyHotkey(_settings.hotkey);
+    await _applyHotkeys();
   }
 
   Future<void> _applyStartup(bool enabled) async {
@@ -277,12 +420,7 @@ class _SnapAppState extends State<SnapApp> with TrayListener {
   }
 
   Future<void> _quit() async {
-    final previous = _registeredHotkey;
-    if (previous != null) {
-      try {
-        await hotKeyManager.unregister(previous);
-      } catch (_) {}
-    }
+    await _clearHotkeys();
     try {
       await trayManager.destroy();
     } catch (_) {}
@@ -298,24 +436,38 @@ class _SnapAppState extends State<SnapApp> with TrayListener {
         colorScheme: ColorScheme.fromSeed(seedColor: const Color(0xFF1D9BF0)),
         useMaterial3: true,
       ),
-      home: _ready
-          ? SettingsPage(
-              settings: _settings,
-              windows: _windows,
-              busy: _busy,
-              onRefresh: _refreshWindows,
-              onSave: _save,
-              onCapture: (draft) async {
-                await _save(draft);
-                await _capture(draft);
-              },
-              onQuit: _quit,
-              onRecordingChanged: (recording) =>
-                  unawaited(_setRecording(recording)),
-              onUpdateReplyTarget: _updateReplyFromClipboard,
-              replyEpoch: _replyEpoch,
-            )
-          : const Scaffold(body: Center(child: CircularProgressIndicator())),
+      home: !_ready
+          ? const Scaffold(body: Center(child: CircularProgressIndicator()))
+          : IndexedStack(
+              index: _showPendingPage ? 1 : 0,
+              sizing: StackFit.expand,
+              children: [
+                SettingsPage(
+                  settings: _settings,
+                  windows: _windows,
+                  busy: _busy,
+                  onRefresh: _refreshWindows,
+                  onSave: _save,
+                  onCapture: (draft) async {
+                    await _save(draft);
+                    await _capture(draft);
+                  },
+                  onQuit: _quit,
+                  onRecordingChanged: (recording) =>
+                      unawaited(_setRecording(recording)),
+                  onUpdateReplyTarget: _updateReplyFromClipboard,
+                  replyEpoch: _replyEpoch,
+                ),
+                PendingPage(
+                  paths: _batch.paths,
+                  busy: _busy,
+                  onRemove: (index) => unawaited(_removePending(index)),
+                  onClear: () => unawaited(_clearPending()),
+                  onPost: () => unawaited(_finishBatch()),
+                  onBack: () => unawaited(_showSettings()),
+                ),
+              ],
+            ),
     );
   }
 }

@@ -48,8 +48,10 @@ class _SettingsPageState extends State<SettingsPage> {
   late final TextEditingController _replyController;
   late String _processExe;
   late HotkeyConfig _hotkey;
+  late HotkeyConfig _finishHotkey;
   late bool _launchAtStartup;
   late bool _continueThread;
+  late bool _batchMode;
 
   @override
   void initState() {
@@ -57,8 +59,10 @@ class _SettingsPageState extends State<SettingsPage> {
     final settings = widget.settings;
     _processExe = settings.targetProcessExe;
     _hotkey = settings.hotkey;
+    _finishHotkey = settings.finishHotkey;
     _launchAtStartup = settings.launchAtStartup;
     _continueThread = settings.continueThread;
+    _batchMode = settings.batchMode;
     _replyController = TextEditingController(text: settings.replyTweet);
     _titleController = TextEditingController(
       text: settings.targetTitleSubstring,
@@ -105,6 +109,8 @@ class _SettingsPageState extends State<SettingsPage> {
       launchAtStartup: _launchAtStartup,
       replyTweet: _replyController.text.trim(),
       continueThread: _continueThread,
+      finishHotkey: _finishHotkey,
+      batchMode: _batchMode,
     );
   }
 
@@ -258,10 +264,29 @@ class _SettingsPageState extends State<SettingsPage> {
           const SizedBox(height: 24),
           Text('ショートカットキー', style: theme.textTheme.titleMedium),
           const SizedBox(height: 8),
+          const Text('撮影'),
+          const SizedBox(height: 4),
           _HotkeyButton(
             hotkey: _hotkey,
             onChanged: (hotkey) => setState(() => _hotkey = hotkey),
             onRecording: widget.onRecordingChanged,
+          ),
+          const SizedBox(height: 8),
+          const Text('まとめて投稿'),
+          const SizedBox(height: 4),
+          _HotkeyButton(
+            hotkey: _finishHotkey,
+            onChanged: (hotkey) => setState(() => _finishHotkey = hotkey),
+            onRecording: widget.onRecordingChanged,
+          ),
+          SwitchListTile(
+            contentPadding: EdgeInsets.zero,
+            title: const Text('まとめて投稿する（最大4枚）'),
+            subtitle: const Text('オンのときは撮影でたまり、まとめて投稿で一度に開きます。4枚目で自動的に投稿します。'),
+            value: _batchMode,
+            onChanged: widget.busy
+                ? null
+                : (value) => setState(() => _batchMode = value),
           ),
           const SizedBox(height: 24),
           Text('投稿', style: theme.textTheme.titleMedium),

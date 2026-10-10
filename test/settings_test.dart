@@ -12,7 +12,9 @@ import 'package:snap_post/src/settings_store.dart';
 void main() {
   test('Ctrl+Shift+S uses the logical key S id', () {
     expect(HotkeyConfig.ctrlShiftS.keyId, LogicalKeyboardKey.keyS.keyId);
+    expect(HotkeyConfig.ctrlShiftD.keyId, LogicalKeyboardKey.keyD.keyId);
     expect(keySKeyId, 0x73);
+    expect(keyDKeyId, 0x64);
   });
 
   test('defaults serialize and keep the preset hashtags', () {
@@ -32,6 +34,10 @@ void main() {
     expect(restored.launchAtStartup, isFalse);
     expect(restored.replyTweet, isEmpty);
     expect(restored.continueThread, isFalse);
+    expect(restored.batchMode, isTrue);
+    expect(restored.finishHotkey.keyId, HotkeyConfig.ctrlShiftD.keyId);
+    expect(restored.finishHotkey.control, isTrue);
+    expect(restored.finishHotkey.shift, isTrue);
     expect(
       buildIntentUrl(
         hashtags: restored.hashtags,
@@ -82,6 +88,13 @@ void main() {
       expect(missing.hashtags, defaultHashtags);
       expect(missing.hotkey.control, isTrue);
       expect(missing.hotkey.shift, isTrue);
+      expect(missing.batchMode, isTrue);
+      expect(missing.finishHotkey.keyId, keyDKeyId);
+
+      final single = AppSettings.fromJson(<String, dynamic>{
+        'batchMode': false,
+      });
+      expect(single.batchMode, isFalse);
 
       final cleared = AppSettings.fromJson(<String, dynamic>{
         'hashtags': <String>[],

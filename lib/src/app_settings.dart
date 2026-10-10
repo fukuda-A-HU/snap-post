@@ -5,6 +5,9 @@ import 'window_match.dart';
 /// Flutter's services library.
 const int keySKeyId = 0x73;
 
+/// LogicalKeyboardKey.keyD.
+const int keyDKeyId = 0x64;
+
 class HotkeyConfig {
   const HotkeyConfig({
     required this.keyId,
@@ -16,6 +19,14 @@ class HotkeyConfig {
 
   static const HotkeyConfig ctrlShiftS = HotkeyConfig(
     keyId: keySKeyId,
+    control: true,
+    shift: true,
+    alt: false,
+    meta: false,
+  );
+
+  static const HotkeyConfig ctrlShiftD = HotkeyConfig(
+    keyId: keyDKeyId,
     control: true,
     shift: true,
     alt: false,
@@ -59,6 +70,8 @@ class AppSettings {
     required this.launchAtStartup,
     this.replyTweet = '',
     this.continueThread = false,
+    this.finishHotkey = HotkeyConfig.ctrlShiftD,
+    this.batchMode = true,
   });
 
   factory AppSettings.defaults() {
@@ -72,6 +85,8 @@ class AppSettings {
       launchAtStartup: false,
       replyTweet: '',
       continueThread: false,
+      finishHotkey: HotkeyConfig.ctrlShiftD,
+      batchMode: true,
     );
   }
 
@@ -99,6 +114,12 @@ class AppSettings {
   /// When true, the intent URL includes `in_reply_to` for [replyTweet].
   final bool continueThread;
 
+  /// Hotkey that posts the pending batch. Default is Ctrl+Shift+D.
+  final HotkeyConfig finishHotkey;
+
+  /// When true, captures accumulate up to four images before posting.
+  final bool batchMode;
+
   WindowTarget get target => WindowTarget(
     processExe: targetProcessExe,
     titleSubstring: targetTitleSubstring,
@@ -114,6 +135,8 @@ class AppSettings {
     bool? launchAtStartup,
     String? replyTweet,
     bool? continueThread,
+    HotkeyConfig? finishHotkey,
+    bool? batchMode,
   }) {
     return AppSettings(
       targetProcessExe: targetProcessExe ?? this.targetProcessExe,
@@ -125,6 +148,8 @@ class AppSettings {
       launchAtStartup: launchAtStartup ?? this.launchAtStartup,
       replyTweet: replyTweet ?? this.replyTweet,
       continueThread: continueThread ?? this.continueThread,
+      finishHotkey: finishHotkey ?? this.finishHotkey,
+      batchMode: batchMode ?? this.batchMode,
     );
   }
 
@@ -138,10 +163,13 @@ class AppSettings {
     'launchAtStartup': launchAtStartup,
     'replyTweet': replyTweet,
     'continueThread': continueThread,
+    'finishHotkey': finishHotkey.toJson(),
+    'batchMode': batchMode,
   };
 
   factory AppSettings.fromJson(Map<String, dynamic> json) {
     final hotkeyJson = json['hotkey'];
+    final finishJson = json['finishHotkey'];
     return AppSettings(
       targetProcessExe: _string(json['targetProcessExe']),
       targetTitleSubstring: _string(json['targetTitleSubstring']),
@@ -156,6 +184,12 @@ class AppSettings {
       launchAtStartup: json['launchAtStartup'] == true,
       replyTweet: _string(json['replyTweet']),
       continueThread: json['continueThread'] == true,
+      finishHotkey: finishJson is Map
+          ? HotkeyConfig.fromJson(_stringKeyMap(finishJson))
+          : HotkeyConfig.ctrlShiftD,
+      batchMode: json.containsKey('batchMode')
+          ? json['batchMode'] == true
+          : true,
     );
   }
 }

@@ -24,6 +24,12 @@ String screenshotFileName(DateTime time) {
       '${two(time.hour)}${two(time.minute)}${two(time.second)}.png';
 }
 
+/// Subfolder for one multi-image post: `yyyyMMdd_HHmmss`.
+String batchFolderName(DateTime time) {
+  final fileName = screenshotFileName(time);
+  return fileName.substring(0, fileName.length - 4);
+}
+
 /// `%USERPROFILE%\Pictures\SnapPost`, or the home directory when that variable
 /// is absent (tests and non-Windows runs).
 String picturesDirectory(Map<String, String> env) {

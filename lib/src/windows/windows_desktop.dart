@@ -3,7 +3,9 @@
 // modules this file calls are imported.
 // ignore_for_file: implementation_imports
 
+import 'dart:async';
 import 'dart:ffi';
+import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:ffi/ffi.dart';
@@ -17,6 +19,7 @@ import 'package:win32/src/win32/kernel32.g.dart';
 import 'package:win32/src/win32/user32.g.dart';
 
 import '../desktop.dart';
+import '../file_drop.dart';
 import '../images.dart';
 import '../window_match.dart';
 
@@ -29,6 +32,8 @@ const int _srcCopy = 0x00CC0020;
 const int _dibRgbColors = 0;
 
 class WindowsDesktopBridge implements DesktopBridge {
+  Timer? _activationTimer;
+  int _activationEvent = 0;
   @override
   Future<List<WindowSummary>> listVisibleWindows() async {
     return _listVisibleWindows();
@@ -94,6 +99,66 @@ class WindowsDesktopBridge implements DesktopBridge {
     } finally {
       CloseClipboard();
     }
+  }
+
+  @override
+  Future<void> copyFilesToClipboard(List<String> paths) async {
+    final absolute = <String>[
+      for (final file in paths) File(file).absolute.path,
+    ];
+    final hdrop = buildFileDropList(absolute);
+    final effect = buildCopyDropEffect();
+    final formatName = 'Preferred DropEffect'.toNativeUtf16();
+    var effectFormat = 0;
+    try {
+      effectFormat = RegisterClipboardFormat(formatName);
+    } finally {
+      malloc.free(formatName);
+    }
+    if (!await _openClipboard()) {
+      throw StateError('OpenClipboard failed');
+    }
+    try {
+      if (EmptyClipboard() == 0) {
+        throw StateError('EmptyClipboard failed');
+      }
+      _setClipboardData(CF_HDROP, hdrop);
+      if (effectFormat != 0) {
+        _setClipboardData(effectFormat, effect);
+      }
+    } finally {
+      CloseClipboard();
+    }
+  }
+
+  @override
+  Future<void> openFolder(String folder) async {
+    try {
+      await Process.run('explorer', <String>[folder]);
+    } catch (_) {}
+  }
+
+  @override
+  void listenForActivation(void Function() onShowSettings) {
+    if (_activationEvent != 0) return;
+    final name = 'Local\\SnapPostShow'.toNativeUtf16();
+    try {
+      _activationEvent = CreateEvent(
+        nullptr.cast<SECURITY_ATTRIBUTES>(),
+        FALSE,
+        FALSE,
+        name,
+      );
+    } finally {
+      malloc.free(name);
+    }
+    if (_activationEvent == 0) return;
+    _activationTimer?.cancel();
+    _activationTimer = Timer.periodic(const Duration(milliseconds: 400), (_) {
+      if (WaitForSingleObject(_activationEvent, 0) == 0) {
+        onShowSettings();
+      }
+    });
   }
 }
 

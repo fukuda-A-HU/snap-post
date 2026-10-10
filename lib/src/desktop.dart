@@ -28,6 +28,15 @@ abstract class DesktopBridge {
 
   /// Clipboard text, or null when it is empty or unavailable.
   Future<String?> readClipboardText();
+
+  /// Puts [paths] on the clipboard as CF_HDROP with Preferred DropEffect copy.
+  Future<void> copyFilesToClipboard(List<String> paths);
+
+  /// Opens [folder] in Explorer. No-op off Windows.
+  Future<void> openFolder(String folder);
+
+  /// Asks to be told when another launch requests the settings window.
+  void listenForActivation(void Function() onShowSettings);
 }
 
 class UnsupportedDesktopBridge implements DesktopBridge {
@@ -50,4 +59,13 @@ class UnsupportedDesktopBridge implements DesktopBridge {
 
   @override
   Future<String?> readClipboardText() async => null;
+
+  @override
+  Future<void> copyFilesToClipboard(List<String> paths) async {}
+
+  @override
+  Future<void> openFolder(String folder) async {}
+
+  @override
+  void listenForActivation(void Function() onShowSettings) {}
 }
