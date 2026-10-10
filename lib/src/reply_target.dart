@@ -19,6 +19,21 @@ String? parseStatusId(String input) {
   return _idFromUri(Uri.tryParse('https://$candidate'));
 }
 
+/// Text shown for the current reply target. Bare ids become an x.com URL.
+String displayReplyTarget(String stored) {
+  final id = parseStatusId(stored);
+  if (id == null) return '未設定';
+  final trimmed = stored.trim();
+  final url = _embeddedUrl.firstMatch(trimmed)?.group(0);
+  if (url != null) return _stripTrailingPunctuation(url);
+  if (trimmed.contains('://') ||
+      trimmed.toLowerCase().contains('x.com') ||
+      trimmed.toLowerCase().contains('twitter.com')) {
+    return trimmed;
+  }
+  return 'https://x.com/i/status/$id';
+}
+
 /// Id used for `in_reply_to` when the thread toggle is on and the field parses.
 String? activeReplyStatusId({
   required bool continueThread,

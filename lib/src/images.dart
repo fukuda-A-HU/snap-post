@@ -118,6 +118,19 @@ CapturedImage ensureOpaque(CapturedImage source) {
   );
 }
 
+/// Builds a CF_DIB from a PNG file. Returns null when the PNG cannot be read.
+Uint8List? dibFromPngBytes(Uint8List pngBytes) {
+  final decoded = img.decodePng(pngBytes);
+  if (decoded == null) return null;
+  final bgra = decoded
+      .convert(numChannels: 4)
+      .getBytes(order: img.ChannelOrder.bgra);
+  if (bgra.length != decoded.width * decoded.height * 4) return null;
+  return buildDeviceIndependentBitmap(
+    CapturedImage(width: decoded.width, height: decoded.height, bgra: bgra),
+  );
+}
+
 Uint8List encodePngFromBgra(CapturedImage image) {
   final pixels = Uint8List.fromList(image.bgra);
   final decoded = img.Image.fromBytes(

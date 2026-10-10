@@ -10,7 +10,6 @@ dependencies:
   ffi: ^2.2.0
   flutter:
     sdk: flutter
-  hotkey_manager: ^0.2.3
   image: ^4.10.2
   launch_at_startup: ^0.5.1
   local_notifier: ^0.1.6

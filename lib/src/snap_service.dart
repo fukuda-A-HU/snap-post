@@ -10,99 +10,105 @@ import 'images.dart';
 import 'intent_url.dart';
 import 'reply_target.dart';
 
-const String copiedNotification = '画像をコピーしました。投稿画面で Ctrl+V で貼り付けてください';
-
-String batchProgressNotification(int count) => '$count/4枚 たまりました';
-
-String batchCopiedNotification(int count) =>
+String postCopiedNotification(int count) =>
     '$count枚をコピーしました。投稿画面で Ctrl+V で貼り付けてください（貼れない場合は開いたフォルダからドラッグ）';
 
-const String windowMissingNotification = '対象のウィンドウが見つかりません';
-
 const String captureFailedNotification = 'スクリーンショットに失敗しました';
+
+enum CaptureStatus { saved, missingTarget, notFound, failed }
+
+class CaptureAttempt {
+  const CaptureAttempt(this.status, [this.path]);
+
+  final CaptureStatus status;
+  final String? path;
+}
 
 class SnapService {
   SnapService(this.desktop);
 
   final DesktopBridge desktop;
 
-  /// Saves one screenshot into [directory]. Returns the file path, or null.
-  Future<String?> captureToDirectory({
+  Future<CaptureAttempt> captureToDirectory({
     required AppSettings settings,
     required String directory,
-    required Future<void> Function(String message) notify,
     DateTime? now,
   }) async {
-    final captured = await _capture(settings, notify);
-    if (captured == null) return null;
+    if (!settings.hasTarget) {
+      return const CaptureAttempt(CaptureStatus.missingTarget);
+    }
+    final captured = await _capture(settings);
+    if (captured.kind == _CaptureKind.notFound) {
+      return const CaptureAttempt(CaptureStatus.notFound);
+    }
+    if (captured.kind != _CaptureKind.image || captured.saved == null) {
+      return const CaptureAttempt(CaptureStatus.failed);
+    }
     try {
       final file = _allocateFile(directory, now ?? DateTime.now());
       await file.parent.create(recursive: true);
-      await file.writeAsBytes(captured.png, flush: true);
-      return file.path;
+      await file.writeAsBytes(captured.saved!.png, flush: true);
+      return CaptureAttempt(CaptureStatus.saved, file.path);
     } catch (_) {
-      await _notify(notify, captureFailedNotification);
-      return null;
+      return const CaptureAttempt(CaptureStatus.failed);
     }
   }
 
-  Future<void> captureAndPost({
+  /// Copies [sourcePaths] into a new folder, puts them on the clipboard, opens
+  /// that folder, and opens the intent URL. Returns true when the clipboard
+  /// and the browser both succeeded.
+  Future<bool> openPost({
     required AppSettings settings,
+    required List<String> sourcePaths,
+    required String saveRoot,
     required Future<void> Function(String message) notify,
     DateTime? now,
   }) async {
-    final captured = await _capture(settings, notify);
-    if (captured == null) return;
-    var saved = false;
+    if (sourcePaths.isEmpty) return false;
     try {
-      final folder = settings.saveFolder.trim().isEmpty
-          ? picturesDirectory(Platform.environment)
-          : settings.saveFolder.trim();
-      final file = _allocateFile(folder, now ?? DateTime.now());
-      await file.parent.create(recursive: true);
-      await file.writeAsBytes(captured.png, flush: true);
-      saved = true;
-      await desktop.copyImageToClipboard(png: captured.png, dib: captured.dib);
-      final opened = await _openIntent(settings);
-      if (!opened) {
-        await _notify(notify, '画像をコピーしました。ブラウザを開けませんでした');
-        return;
-      }
-      await _notify(notify, copiedNotification);
-    } catch (_) {
-      await _notify(
-        notify,
-        saved ? '画像は保存しましたが、その後の処理に失敗しました' : captureFailedNotification,
+      final folder = path.join(
+        saveRoot,
+        batchFolderName(now ?? DateTime.now()),
       );
-    }
-  }
-
-  /// Returns true when the files were placed on the clipboard.
-  Future<bool> publishBatch({
-    required AppSettings settings,
-    required List<String> paths,
-    required String folder,
-    required Future<void> Function(String message) notify,
-  }) async {
-    if (paths.isEmpty) {
-      await _notify(notify, '投稿待ちの画像がありません');
-      return false;
-    }
-    try {
-      await desktop.copyFilesToClipboard(paths);
+      final staged = await _stageFiles(folder, sourcePaths);
+      Uint8List? png;
+      Uint8List? dib;
+      if (staged.length == 1) {
+        png = await File(staged.single).readAsBytes();
+        dib = dibFromPngBytes(png);
+      }
+      await desktop.copyFilesToClipboard(staged, png: png, dib: dib);
       await desktop.openFolder(folder);
       final opened = await _openIntent(settings);
-      final message = batchCopiedNotification(paths.length);
+      final message = postCopiedNotification(staged.length);
       if (!opened) {
         await _notify(notify, '$message ブラウザを開けませんでした');
-        return true;
+        return false;
       }
       await _notify(notify, message);
       return true;
     } catch (_) {
-      await _notify(notify, 'まとめて投稿に失敗しました');
+      await _notify(notify, '投稿画面を開けませんでした');
       return false;
     }
+  }
+
+  Future<List<String>> _stageFiles(String folder, List<String> sources) async {
+    await Directory(folder).create(recursive: true);
+    final staged = <String>[];
+    for (final source in sources) {
+      final name = path.basename(source);
+      var dest = path.join(folder, name);
+      var suffix = 2;
+      while (File(dest).existsSync()) {
+        final stem = path.basenameWithoutExtension(name);
+        dest = path.join(folder, '${stem}_$suffix.png');
+        suffix++;
+      }
+      await File(source).copy(dest);
+      staged.add(dest);
+    }
+    return staged;
   }
 
   Future<bool> _openIntent(AppSettings settings) {
@@ -117,37 +123,35 @@ class SnapService {
     return launchUrlString(url, mode: LaunchMode.externalApplication);
   }
 
-  Future<_SavedCapture?> _capture(
-    AppSettings settings,
-    Future<void> Function(String message) notify,
-  ) async {
+  Future<_CaptureResult> _capture(AppSettings settings) async {
     final CaptureOutcome outcome;
     try {
       outcome = await desktop.captureMatching(settings.target);
     } catch (_) {
-      await _notify(notify, captureFailedNotification);
-      return null;
+      return const _CaptureResult.failed();
     }
-    if (!outcome.found || outcome.image == null) {
-      await _notify(
-        notify,
-        outcome.found ? captureFailedNotification : windowMissingNotification,
-      );
-      return null;
-    }
+    if (!outcome.found) return const _CaptureResult.notFound();
+    if (outcome.image == null) return const _CaptureResult.failed();
     final opaque = ensureOpaque(outcome.image!);
-    return _SavedCapture(
-      png: encodePngFromBgra(opaque),
-      dib: buildDeviceIndependentBitmap(opaque),
-    );
+    return _CaptureResult.image(_SavedCapture(png: encodePngFromBgra(opaque)));
   }
 }
 
+enum _CaptureKind { image, notFound, failed }
+
+class _CaptureResult {
+  const _CaptureResult.image(this.saved) : kind = _CaptureKind.image;
+  const _CaptureResult.notFound() : kind = _CaptureKind.notFound, saved = null;
+  const _CaptureResult.failed() : kind = _CaptureKind.failed, saved = null;
+
+  final _CaptureKind kind;
+  final _SavedCapture? saved;
+}
+
 class _SavedCapture {
-  const _SavedCapture({required this.png, required this.dib});
+  const _SavedCapture({required this.png});
 
   final Uint8List png;
-  final Uint8List dib;
 }
 
 Future<void> _notify(

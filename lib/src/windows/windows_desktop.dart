@@ -102,18 +102,28 @@ class WindowsDesktopBridge implements DesktopBridge {
   }
 
   @override
-  Future<void> copyFilesToClipboard(List<String> paths) async {
+  Future<void> copyFilesToClipboard(
+    List<String> paths, {
+    Uint8List? png,
+    Uint8List? dib,
+  }) async {
     final absolute = <String>[
       for (final file in paths) File(file).absolute.path,
     ];
     final hdrop = buildFileDropList(absolute);
     final effect = buildCopyDropEffect();
-    final formatName = 'Preferred DropEffect'.toNativeUtf16();
+    final effectName = 'Preferred DropEffect'.toNativeUtf16();
+    final pngName = 'PNG'.toNativeUtf16();
     var effectFormat = 0;
+    var pngFormat = 0;
     try {
-      effectFormat = RegisterClipboardFormat(formatName);
+      effectFormat = RegisterClipboardFormat(effectName);
+      if (png != null && dib != null) {
+        pngFormat = RegisterClipboardFormat(pngName);
+      }
     } finally {
-      malloc.free(formatName);
+      malloc.free(effectName);
+      malloc.free(pngName);
     }
     if (!await _openClipboard()) {
       throw StateError('OpenClipboard failed');
@@ -125,6 +135,10 @@ class WindowsDesktopBridge implements DesktopBridge {
       _setClipboardData(CF_HDROP, hdrop);
       if (effectFormat != 0) {
         _setClipboardData(effectFormat, effect);
+      }
+      if (png != null && dib != null) {
+        _setClipboardData(CF_DIB, dib);
+        if (pngFormat != 0) _setClipboardData(pngFormat, png);
       }
     } finally {
       CloseClipboard();
