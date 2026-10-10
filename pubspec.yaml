@@ -1,0 +1,34 @@
+name: snap_post
+description: "Capture a chosen window and open an X post composer."
+publish_to: 'none'
+version: 1.0.0+1
+
+environment:
+  sdk: ^3.13.5
+
+dependencies:
+  ffi: ^2.2.0
+  flutter:
+    sdk: flutter
+  hotkey_manager: ^0.2.3
+  image: ^4.10.2
+  launch_at_startup: ^0.5.1
+  local_notifier: ^0.1.6
+  path: ^1.9.1
+  path_provider: ^2.1.6
+  # 0.8 compiles a native library in a build hook, which breaks `flutter test`
+  # on non-Windows machines. Stay on the 0.5 plugin API.
+  tray_manager: ^0.5.3
+  url_launcher: ^6.3.3
+  win32: ^5.15.0
+  window_manager: ^0.5.2
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^6.0.0
+
+flutter:
+  uses-material-design: true
+  assets:
+    - assets/tray_icon.png
